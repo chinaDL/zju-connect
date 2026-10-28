@@ -26,6 +26,8 @@
 
 #### 直接运行
 
+默认启用 TUN 模式，不监听 SOCKS5/HTTP 代理端口。以下连接命令需要管理员权限运行（Linux/macOS 可使用 `sudo`，Windows 使用管理员终端）。只需代理服务时，可加 `-tun-mode=false -socks-bind :1080 -http-bind :1081`。
+
 ##### 使用 EasyConnect 协议
 
 + 如果你是来自 ZJU 的用户：
@@ -36,19 +38,19 @@
 
   3. macOS 需要先解除安全限制。命令行运行：`sudo xattr -rd com.apple.quarantine zju-connect`。
 
-  4. 命令行运行：`./zju-connect -protocol easyconnect -username <上网账户> -password <密码>`。
+  4. 命令行运行：`./zju-connect -protocol easyconnect -server rvpn.zju.edu.cn -username <上网账户> -password <密码>`。
 
-  5. 此时 `1080` 端口为 Socks5 代理，`1081` 端口为 HTTP 代理。如需更改默认端口，请参考参数说明。
+  5. 默认通过 TUN 网卡访问服务端下发的资源，不开放本地代理端口。如需开启 SOCKS5/HTTP 代理，请显式配置监听地址。
 
 + 如果你是非 ZJU 的用户：
 
   其他步骤与上述相同，运行参数请尝试设置为：
 
-  `./zju-connect -server <服务器地址> -port <服务器端口> -username xxx -password xxx -disable-zju-config -skip-domain-resource -remote-dns-server auto`
+  `./zju-connect -protocol easyconnect -server <服务器地址> -port <服务器端口> -username xxx -password xxx -disable-zju-config -skip-domain-resource -remote-dns-server auto`
 
   如果你的服务器需要输入图形验证码，运行参数请尝试设置为：
 
-  `./zju-connect -server <服务器地址> -port <服务器端口> -username xxx -password xxx -disable-zju-config -skip-domain-resource -remote-dns-server auto -disable-multi-line -graph-code-file graph_code.jpg`
+  `./zju-connect -protocol easyconnect -server <服务器地址> -port <服务器端口> -username xxx -password xxx -disable-zju-config -skip-domain-resource -remote-dns-server auto -disable-multi-line -graph-code-file graph_code.jpg`
 
   登录时会将图片保存至 `graph_code.jpg` 文件，请查看并手动输入验证码。
 
@@ -60,7 +62,7 @@
 
   其他步骤与 EasyConnect 相同，运行参数请设置为：
 
-  `./zju-connect -protocol atrust -username <上网账户> -password <密码> -client-data-file client_data.json`
+  `./zju-connect -protocol atrust -server vpn.zju.edu.cn -login-domain Radius -username <上网账户> -password <密码> -client-data-file client_data.json`
 
   之后按照提示操作。如果你不希望保存登录状态，可以不填 `-client-data-file` 参数。
 
@@ -96,17 +98,17 @@
 
 2. Windows 系统需要前往 [Wintun 官网](https://www.wintun.net)下载 `wintun.dll` 并放置于可执行文件同目录下
 
-3. EasyConnect 协议下的推荐配置为 `-tun-mode -add-route -dns-hijack`
+3. 默认启用 `-tun-mode -add-route -fake-ip`，但不启用 DNS 劫持。默认 TUN 根据服务端下发的 IP 规则写路由；如需处理 aTrust 的域名资源，可显式添加 `-dns-hijack`。若只使用 SOCKS5/HTTP 代理，可加 `-tun-mode=false -socks-bind :1080 -http-bind :1081`，无需管理员权限。
 
-4. aTrust 协议下的推荐配置为 `-tun-mode -add-route -dns-hijack -fake-ip`。在使用 aTrust 协议时，如果不使用 DNS劫持/Fake IP，直接通过 TUN 网卡的涉及域名的 TCP 流量可能会出错
+4. 在使用 aTrust 协议时，如果不使用 DNS 劫持/Fake IP，直接通过 TUN 网卡的涉及域名的 TCP 流量可能会出错。
 
 ### 参数说明
 
 #### 通用参数
 
-+ `protocol`: 登录协议，支持 `easyconnect`/`atrust`，默认为 `easyconnect`
++ `protocol`: 登录协议，支持 `easyconnect`/`atrust`，默认为 `atrust`
 
-+ `server`: VPN 服务端地址，默认为 `rvpn.zju.edu.cn`/`vpn.zju.edu.cn`
++ `server`: VPN 服务端地址，默认为 `vpn.yth.cn`
 
 + `port`: VPN 服务端端口，默认为 `443`
 
@@ -114,7 +116,7 @@
 
 + `password`: 网络账户密码（敏感信息建议使用环境变量 `ZJU_CONNECT_PASSWORD` 给定）
 
-+ `graph-code-file`: 图形验证码文件路径。默认为空。在 aTrust 模式下，留空时使用浏览器完成验证码，设置路径则登录时会将图形验证码保存至该文件，由用户手动输入 JSON
++ `graph-code-file`: 图形验证码文件路径，默认为空。在 aTrust 模式下，留空时程序会临时监听随机 IPv4 端口，打印本机及各活动网卡的访问地址；Linux 可从其他能连通该地址的设备打开浏览器完成验证码，macOS/Windows 还会自动打开本机页面。设置路径后则保存图片，由用户在终端输入 JSON。临时页面完成提交或超时后关闭；远程访问需允许该随机端口通过防火墙
 
 + `totp-secret`: TOTP 密钥，可用于自动完成 TOTP 验证。如服务端无需 TOTP 验证或希望手动输入验证码，可不填（敏感信息建议使用环境变量 `ZJU_CONNECT_TOTP_SECRET` 给定）
 
@@ -122,13 +124,13 @@
 
 + `disable-server-config`: 禁用服务端配置，一般不需要加此参数
 
-+ `socks-bind`: SOCKS5 代理监听地址，默认为 `:1080`
++ `socks-bind`: SOCKS5 代理监听地址，默认为空（不启用）。例如 `:1080`
 
 + `socks-user`: SOCKS5 代理用户名，不填则不需要认证
 
 + `socks-passwd`: SOCKS5 代理密码，不填则不需要认证
 
-+ `http-bind`: HTTP 代理监听地址，默认为 `:1081`。为 `""` 时不启用 HTTP 代理
++ `http-bind`: HTTP 代理监听地址，默认为空（不启用）。例如 `:1081`
 
 + `shadowsocks-url`: Shadowsocks 服务端 URL。例如：`ss://aes-128-gcm:password@server:port`。格式[参考此处](https://github.com/shadowsocks/go-shadowsocks2)
 
@@ -136,9 +138,9 @@
 
 + `tcp-tunnel-mode`: TCP 隧道模式，默认为 `false`。启用后仅可通过 TCP 隧道代理 TCP 流量。由于只有 aTrust 支持 TCP 隧道，此模式在 EasyConnect 下无效。启用后会禁用 TUN 模式
 
-+ `tun-mode`: TUN 模式（实验性）。请阅读 TUN 模式注意事项
++ `tun-mode`: TUN 模式（实验性），默认为 `true`。请阅读 TUN 模式注意事项；使用 `-tun-mode=false` 可关闭
 
-+ `add-route`: 启用 TUN 模式时根据服务端下发配置添加路由
++ `add-route`: 启用 TUN 模式时根据服务端下发配置添加路由，默认为 `true`
 
 + `dns-ttl`: DNS 缓存时间，默认为 `3600` 秒
 
@@ -154,9 +156,9 @@
 
 + `local-dns-server`: 指定用于解析 VPN 服务器域名的本地 DNS，格式为 IP 或 IP:port；留空时使用系统 DNS，可路由的 DNS 地址在探测成功后绑定到底层网卡，本地 DNS stub 保持 loopback 路由
 
-+ `dns-hijack`: 启用 TUN 模式时劫持 DNS 请求，建议在启用 TUN 模式时添加此参数
++ `dns-hijack`: 启用 TUN 模式时劫持 DNS 请求，默认为 `false`；需要处理域名资源时可显式启用
 
-+ `fake-ip`: 启用 Fake IP 功能，与 dns-hijack 配合使用，建议在使用 aTrust 协议并启用 TUN 模式时添加此参数。此参数在 EasyConnect 协议下无效
++ `fake-ip`: 启用 Fake IP 功能，默认为 `true`；仅在同时启用 DNS 劫持时生效。此参数在 EasyConnect 协议下无效
 
 + `debug-dump`: 是否开启调试，一般不需要加此参数
 
@@ -204,7 +206,7 @@
 
 + `auth-type`: aTrust 登录验证类型，支持 `auth/psw`（密码验证）、`auth/cas`（CAS 验证）、`auth/smsCheckCode`（短信验证码验证），默认为自动检测
 
-+ `login-domain`: 登录域，默认为 `Radius`
++ `login-domain`: 登录域，默认为 `local`
 
 + `client-data-file`: 客户端数据文件路径，可用于保存登录状态，避免重复验证
 

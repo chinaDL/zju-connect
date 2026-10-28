@@ -75,14 +75,16 @@ type SingleCustomDNS struct {
 
 func Default() Config {
 	return Config{
-		Protocol:                "easyconnect",
+		Protocol:                "atrust",
+		ServerAddress:           "vpn.yth.cn",
 		ServerPort:              443,
-		SocksBind:               ":1080",
-		HTTPBind:                ":1081",
+		TUNMode:                 true,
+		AddRoute:                true,
+		FakeIP:                  true,
 		DNSTTL:                  3600,
 		RemoteDNSServer:         "auto",
 		SecondaryDNSServer:      "auto",
-		LoginDomain:             "Radius",
+		LoginDomain:             "local",
 		UpdateBestNodesInterval: 300,
 		SessionRefreshInterval:  1800,
 	}

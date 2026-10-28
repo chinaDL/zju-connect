@@ -45,7 +45,7 @@
 
 4. 参考 [com.zju.connect.plist](com.zju.connect.plist) 建立 macOS 系统服务配置文件，plist 文件为二进制文件，建议使用 PlistEdict Pro 编辑，其中关键配置参数如下：
 
-    + `UserName`: 后台运行 zju-connect 的的用户默认为 `root`，建议修改为你自己的用户名
+    + `UserName`: 后台运行 zju-connect 的用户默认为 `root`；默认 TUN 模式需要管理员权限。若改用普通用户，请先在配置中设置 `tun_mode = false`
     + `ProgramArguments`: zju-connect 运行参数
     + `StandardErrorPath`: 输出 zju-connect 运行日志的目录（用于调试，可不指定）
     + `StandardOutPath`: 输出 zju-connect 运行日志的目录（用于调试，可不指定）
@@ -81,7 +81,7 @@
 
 1. 从 [Release](https://github.com/Mythologyli/ZJU-Connect/releases) 页面下载对应平台的最新 linux 版本，将可执行文件保存为 `/usr/bin/zju-connect` 并赋予可执行权限。
 
-2. 参照仓库中的 `config.toml.example`，创建配置文件 `/etc/back2zju.toml`，配置好 socks/http 代理端口，因通过代理插件实现分流，建议将 zju-connect 的配置项 `proxy_all` 设置为 `true`。
+2. 参照仓库中的 `config.toml.example`，创建配置文件 `/etc/back2zju.toml`，配置好 socks/http 代理端口。通过代理插件分流时，设置 `tun_mode = false`，并建议将 `proxy_all` 设置为 `true`。
 
 3. 将以下内容保存为 `/etc/init.d/back2zju` 并赋予可执行权限：
 

@@ -26,6 +26,8 @@
 
 #### Run Directly
 
+TUN mode is enabled by default and no SOCKS5/HTTP proxy ports are opened. Run the connection commands below with administrator privileges (`sudo` on Linux/macOS or an elevated terminal on Windows). For proxies only, pass `-tun-mode=false -socks-bind :1080 -http-bind :1081`.
+
 ##### Using EasyConnect Protocol
 
 + If you are a ZJU user:
@@ -35,21 +37,21 @@
 
   3. macOS users need to remove security restrictions first. Run the following in your terminal: `sudo xattr -rd com.apple.quarantine zju-connect`
 
-  4. Run the command: `./zju-connect -protocol easyconnect -username <Account> -password <Password>`
+  4. Run the command: `./zju-connect -protocol easyconnect -server rvpn.zju.edu.cn -username <Account> -password <Password>`
 
-  5. By default, port `1080` is the Socks5 proxy and port `1081` is the HTTP proxy. To change these ports, please refer to the parameter descriptions.
+  5. By default, server-provided resources are accessed through TUN and no local proxy ports are opened. Set listening addresses explicitly to enable SOCKS5/HTTP proxies.
 
 + If you are a non-ZJU user:
 
   The steps are the same as above, but try setting the running parameters as follows:
 
-  `./zju-connect -server <Server Address> -port <Server Port> -username xxx -password xxx -disable-zju-config -skip-domain-resource -remote-dns-server auto`
+  `./zju-connect -protocol easyconnect -server <Server Address> -port <Server Port> -username xxx -password xxx -disable-zju-config -skip-domain-resource -remote-dns-server auto`
 
   *For details, see this [link](https://github.com/Mythologyli/zju-connect/issues/65#issuecomment-2650185322).*
 
   If your server requires a graphic captcha, try setting the running parameters as follows:
 
-  `./zju-connect -server <Server Address> -port <Server Port> -username xxx -password xxx -disable-zju-config -skip-domain-resource -remote-dns-server auto -disable-multi-line -graph-code-file graph_code.jpg`
+  `./zju-connect -protocol easyconnect -server <Server Address> -port <Server Port> -username xxx -password xxx -disable-zju-config -skip-domain-resource -remote-dns-server auto -disable-multi-line -graph-code-file graph_code.jpg`
 
   When logging in, the captcha image will be saved to the `graph_code.jpg` file. Please check it and manually enter the captcha code.
 
@@ -57,7 +59,7 @@
 
 + If you are a ZJU user:
   Other steps are the same as the EasyConnect method, but set the running parameters to:
-  `./zju-connect -protocol atrust -username <Account> -password <Password> -client-data-file client_data.json`
+  `./zju-connect -protocol atrust -server vpn.zju.edu.cn -login-domain Radius -username <Account> -password <Password> -client-data-file client_data.json`
   Then follow the on-screen prompts. If you do not want to save the login status, you can omit the `-client-data-file` parameter.
 
 + If you are a non-ZJU user:
@@ -91,17 +93,17 @@
 
 2. Windows system needs to go to [Wintun official website](https://www.wintun.net) to download `wintun.dll` and place it in the same directory as the executable file
 
-3. EasyConnect Protocol: The recommended configuration is: `-tun-mode -add-route -dns-hijack`
+3. `-tun-mode -add-route -fake-ip` are enabled by default, but DNS hijacking is disabled. By default, TUN adds routes for server-provided IP resources. To handle aTrust domain resources, explicitly pass `-dns-hijack`. For SOCKS5/HTTP proxies only, pass `-tun-mode=false -socks-bind :1080 -http-bind :1081`; this does not require administrator privileges.
 
-4. aTrust Protocol: The recommended configuration is: `-tun-mode -add-route -dns-hijack -fake-ip`. Note: When using the aTrust protocol, direct TCP traffic involving domain names via the TUN interface may fail if DNS Hijacking or Fake IP is not enabled
+4. With aTrust, direct TCP traffic involving domain names via TUN may fail if DNS hijacking or Fake IP is disabled.
 
 ### Arguments
 
 #### General Arguments
 
-+ `protocol`: Login protocol, supports `easyconnect`/`atrust`, default is `easyconnect`
++ `protocol`: Login protocol, supports `easyconnect`/`atrust`, default is `atrust`
 
-+ `server`: VPN server address, default is `rvpn.zju.edu.cn`/`vpn.zju.edu.cn`
++ `server`: VPN server address, default is `vpn.yth.cn`
 
 + `port`: VPN server port, default is `443`
 
@@ -109,7 +111,7 @@
 
 + `password`: Network account password. (Sensitive information is recommended to be provided via env `ZJU_CONNECT_PASSWORD`)
 
-+ `graph-code-file`: Graphic captcha file path, default is empty. In aTrust mode, if set, the program will save the captcha image to this file and ask user to input the JSON in terminal.
++ `graph-code-file`: Graphic captcha file path, empty by default. In aTrust mode, an empty value starts a temporary HTTP page on a random IPv4 port and prints the local URL plus URLs for active network interfaces. On Linux, open a reachable URL from another device; macOS and Windows also open the local page automatically. If a path is set, the image is saved there and JSON is entered in the terminal. The page closes after submission or timeout; remote access requires the firewall to allow the random port.
 
 + `totp-secret`: TOTP secret, can be used to automatically complete TOTP verification. If the server doesn't require TOTP or you want to manually enter the code, leave blank. (Sensitive information is recommended to be provided via env `ZJU_CONNECT_TOTP_SECRET`)
 
@@ -117,13 +119,13 @@
 
 + `disable-server-config`: Disable server configuration, generally no need to add this argument
 
-+ `socks-bind`: SOCKS5 proxy listening address, default is `:1080`
++ `socks-bind`: SOCKS5 proxy listening address, empty by default (disabled). For example, `:1080`
 
 + `socks-user`: SOCKS5 proxy username, leave blank if no authentication is required
 
 + `socks-passwd`: SOCKS5 proxy password, leave blank if no authentication is required
 
-+ `http-bind`: HTTP proxy listening address, default is `:1081`. Set to `""` to disable HTTP proxy
++ `http-bind`: HTTP proxy listening address, empty by default (disabled). For example, `:1081`
 
 + `shadowsocks-url`: Shadowsocks server URL. For example: `ss://aes-128-gcm:password@server:port`. Format [refer to here](https://github.com/shadowsocks/go-shadowsocks2)
 
@@ -131,9 +133,9 @@
 
 + `tcp-tunnel-mode`: TCP tunnel mode, default is `false`. When enabled, only TCP traffic can be proxied through the TCP tunnel. Since only aTrust supports TCP tunneling, this mode is ineffective under EasyConnect. Enabling this will disable TUN mode
 
-+ `tun-mode`: TUN mode (experimental). Please read the TUN mode precautions below
++ `tun-mode`: TUN mode (experimental), enabled by default. Please read the TUN mode precautions above; use `-tun-mode=false` to disable it
 
-+ `add-route`: Add routes according to the configuration issued by the server when TUN mode is enabled
++ `add-route`: Add routes according to the configuration issued by the server when TUN mode is enabled; enabled by default
 
 + `dns-ttl`: DNS cache time, default is `3600` seconds
 
@@ -149,9 +151,9 @@
 
 + `local-dns-server`: Local DNS server used to resolve the VPN server hostname, as IP or IP:port; when empty, the system DNS is used, routable DNS addresses are bound to the detected underlay interface, and local DNS stubs keep their loopback route
 
-+ `dns-hijack`: Hijack DNS requests when TUN mode is enabled, it's recommended to add this argument when using TUN mode
++ `dns-hijack`: Hijack DNS requests when TUN mode is enabled; disabled by default. Enable it explicitly to handle domain resources
 
-+ `fake-ip`: Enable Fake IP mode. Works with dns-hijack. Don't enable it if you are using EasyConnect protocol
++ `fake-ip`: Enable Fake IP mode; enabled by default, but effective only when DNS hijacking is also enabled. It has no effect with EasyConnect
 
 + `debug-dump`: Whether to enable debugging, generally no need to add this argument
 
@@ -198,7 +200,7 @@ The old `disable_zju_dns` and `zju_dns_server` names, including their command-li
 #### aTrust Related Arguments
 
 + `auth-type`: aTrust login authentication type, supports `auth/psw` (password), `auth/cas` (CAS), `auth/smsCheckCode` (SMS verification code), default is auto detected.
-+ `login-domain`: Login domain, default is `Radius`.
++ `login-domain`: Login domain, default is `local`.
 + `client-data-file`: Client data file path, used to save login status to avoid repeated verification.
 + `cas-ticket`: CAS verification ticket, defaults to empty, which triggers interactive verification.
 + `phone`: Phone number used for SMS verification code login.

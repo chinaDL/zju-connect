@@ -1,5 +1,7 @@
 ## Docker 运行
 
+以下端口映射示例用于 SOCKS5/HTTP 代理，请在挂载的 `config.toml` 中设置 `tun_mode = false`、`socks_bind = ":1080"`、`http_bind = ":1081"`。默认启用的 TUN 模式需要额外的容器网络权限和设备访问。
+
 ```zsh
 $ docker run -d --name zju-connect -v $PWD/config.toml:/home/nonroot/config.toml -p 1080:1080 -p 1081:1081 --restart unless-stopped mythologyli/zju-connect
 ```
@@ -35,6 +37,9 @@ configs:
       content: |
          username = ""
          password = ""
+         tun_mode = false
+         socks_bind = ":1080"
+         http_bind = ":1081"
          # other configs ...
 ```
 
@@ -67,13 +72,16 @@ configs:
       content: |
          username = ""
          password = ""
+         tun_mode = false
+         socks_bind = ":1080"
+         http_bind = ":1081"
          client_data_file = "/home/nonroot/data/client_data.json"
          # other configs ...
 volumes:
    zju-connect-data:
 ```
 
-使用 aTrust 协议初次登录时需要人工验证，应当使用 `network_mode: host` 和交互模式临时运行：
+使用 aTrust 协议初次登录时需要人工验证。在 Linux 上，先将此服务的 `ports` 临时替换为 `network_mode: host`，再以交互模式运行，使随机分配的验证码端口能从主机网络访问：
 
 ```zsh
 docker compose run --rm -it zju-connect
@@ -83,11 +91,11 @@ docker compose run --rm -it zju-connect
 
 **1. 图形验证码**
 
-程序会启动一个临时 HTTP 服务器显示验证码，端口号由系统随机分配。请从日志中查看实际地址：
+程序会监听所有 IPv4 网卡上的随机端口，并打印本机和各活动网卡的地址。请从日志中选择可从浏览器设备连通的地址；防火墙也需要放行该端口：
 
 ```
-2026/03/25 09:10:46 Captcha server started at http://127.0.0.1:40855
-2026/03/25 09:10:46 Failed to open browser: exec: "xdg-open": executable file not found in $PATH. Please visit: http://127.0.0.1:40855
+Captcha local URL: http://127.0.0.1:40855/captcha/<随机令牌>/
+Captcha network URL: http://192.168.1.10:40855/captcha/<随机令牌>/
 ```
 
 访问日志中显示的地址完成图形验证码验证后，程序会提示输入短信验证码：

@@ -315,7 +315,7 @@ func main() {
 			_ = vpnTUNStack.AddRoute("10.0.0.0/8")
 		}
 
-		if conf.FakeIP {
+		if conf.DNSHijack && conf.FakeIP && vpnClient.CanUseTCPTunnel() {
 			_ = vpnTUNStack.AddRoute("198.18.0.0/16")
 		}
 

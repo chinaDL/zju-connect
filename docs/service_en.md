@@ -45,7 +45,7 @@ For macOS, system services are based on `launchd`, which is different from `syst
 
 4. Create `plist` file referring to [com.zju.connect.plist](com.zju.connect.plist). Since `plist` is a binary file, it's recommended to edit using PlistEdict Pro. Here are some key configurations:
 
-    + `UserName`: The default user for running zju-connect in the background is `root`, it's recommended to change to your own username.
+    + `UserName`: The default user is `root`; the default TUN mode requires administrator privileges. If running as a regular user, set `tun_mode = false` in the configuration.
     + `ProgramArguments`: zju-connect running parameters.
     + `StandardErrorPath`: The directory for outputting zju-connect running logs (for debugging, can be omitted).
     + `StandardOutPath`: The directory for outputting zju-connect running logs (for debugging, can be omitted).
@@ -81,7 +81,7 @@ For OpenWrt system, you can use procd init script to make zju-connect start auto
 
 1. Download the latest version of the corresponding platform on the [Release](https://github.com/mythologyli/zju-connect/releases) page, place the executable file in the `/usr/bin` directory and grant executable permissions.
 
-2. Refer to `config.toml.example` in the repository, create the configuration file `/etc/back2zju.toml`, configure the socks/http proxy port, and because routing is implemented through the proxy plugin, it's recommended to set the zju-connect configuration item `proxy_all` to `true`.
+2. Refer to `config.toml.example` in the repository, create `/etc/back2zju.toml`, and configure the SOCKS5/HTTP proxy ports. When routing through a proxy plugin, set `tun_mode = false`; setting `proxy_all` to `true` is also recommended.
 
 3. Save the following content as `/etc/init.d/back2zju` and grant executable permissions:
 

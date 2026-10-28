@@ -1,0 +1,19 @@
+
+windows 使用超级管理员启动cmd
+
+mac 和 linux 使用 sudo 启动
+
+启动方式如下:
+
+mac:
+
+sudo yth_vpn_darwin_arm64 -username '账号' -password '密码'
+
+linux:
+
+sudo yth_vpn_linux_amd64 -username '账号' -password '密码'
+
+windows:
+windows 使用超级管理员启动cmd后使用
+yth_vpn_windows_amd64 -username '账号' -password '密码'
+

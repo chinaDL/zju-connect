@@ -2,12 +2,16 @@ package authchallenge
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os/exec"
 	"runtime"
+	"sort"
+	"sync/atomic"
 	"time"
 )
 
@@ -101,7 +105,7 @@ const captchaPageHTML = `<!DOCTYPE html>
   <h2 id="headline">请按顺序点击图中指定的文字</h2>
   <p class="hint" id="hint">在验证码图片上依次点击对应文字的位置</p>
   <div class="img-wrap" id="imgWrap">
-    <img id="captchaImg" src="/captcha.img" alt="验证码" draggable="false">
+    <img id="captchaImg" src="captcha.img" alt="验证码" draggable="false">
   </div>
   <div class="actions">
     <button id="undoBtn" type="button" onclick="undoClick()">撤销上一个</button>
@@ -266,7 +270,7 @@ function submitClicks() {
   renderStatus();
 
   var xhr = new XMLHttpRequest();
-  xhr.open('POST', '/submit', true);
+  xhr.open('POST', 'submit', true);
   xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
   xhr.onload = function() {
     if (xhr.status === 200) {
@@ -300,25 +304,55 @@ applyLang();
 // image in the user's browser and waits for the user to click on character
 // positions and submit the coordinates.
 func serveCaptchaInBrowser(imgData []byte, timeout time.Duration, output io.Writer) (ClickCaptchaResponse, error) {
+	return serveCaptcha(imgData, timeout, output, runtime.GOOS, openBrowser)
+}
+
+func serveCaptcha(imgData []byte, timeout time.Duration, output io.Writer, platform string, browserOpener func(string, io.Writer)) (ClickCaptchaResponse, error) {
+	secret := make([]byte, 16)
+	if _, err := rand.Read(secret); err != nil {
+		return ClickCaptchaResponse{}, fmt.Errorf("generate captcha access token: %w", err)
+	}
+	basePath := "/captcha/" + hex.EncodeToString(secret) + "/"
 	resultCh := make(chan ClickCaptchaResponse, 1)
+	var submitted atomic.Bool
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(basePath, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != basePath {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(captchaPageHTML))
+		_, _ = io.WriteString(w, captchaPageHTML)
 	})
 
-	mux.HandleFunc("/captcha.img", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(basePath+"captcha.img", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		contentType := http.DetectContentType(imgData)
 		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Write(imgData)
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		_, _ = w.Write(imgData)
 	})
 
-	mux.HandleFunc("/submit", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(basePath+"submit", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "invalid form", http.StatusBadRequest)
 			return
 		}
 		code := r.FormValue("code")
@@ -331,54 +365,116 @@ func serveCaptchaInBrowser(imgData []byte, timeout time.Duration, output io.Writ
 			http.Error(w, "invalid code: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		select {
-		case resultCh <- response:
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("ok"))
-		default:
+		if !submitted.CompareAndSwap(false, true) {
 			http.Error(w, "already submitted", http.StatusConflict)
+			return
 		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "ok")
+		resultCh <- response
 	})
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp4", "0.0.0.0:0")
 	if err != nil {
 		return ClickCaptchaResponse{}, fmt.Errorf("failed to start captcha server: %w", err)
 	}
 
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       15 * time.Second,
+	}
+	serveDone := make(chan struct{})
+	go func() {
+		defer close(serveDone)
+		_ = srv.Serve(listener)
+	}()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			_ = srv.Close()
+		}
+		<-serveDone
+	}()
 
-	go srv.Serve(listener)
+	port := listener.Addr().(*net.TCPAddr).Port
+	fmt.Println("请打开下方能够访问的地址进行验证码输入")
+	localURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, basePath)
+	_, _ = fmt.Fprintf(output, "Captcha local URL: %s\n", localURL)
+	addresses, err := activeIPv4Addresses()
+	if err != nil {
+		_, _ = fmt.Fprintf(output, "Could not list network interfaces: %v\n", err)
+	}
+	for _, addr := range addresses {
+		_, _ = fmt.Fprintf(output, "Captcha network URL: http://%s:%d%s\n", addr, port, basePath)
+	}
+	if platform == "darwin" || platform == "windows" {
+		browserOpener(localURL, output)
+	}
 
-	addr := fmt.Sprintf("http://%s", listener.Addr().String())
-	_, _ = fmt.Fprintf(output, "Captcha server started at %s\n", addr)
-
-	openBrowser(addr, output)
-
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	select {
 	case response := <-resultCh:
-		srv.Shutdown(context.Background())
 		return response, nil
-	case <-time.After(timeout):
-		srv.Shutdown(context.Background())
+	case <-timer.C:
 		return ClickCaptchaResponse{}, fmt.Errorf("captcha input timed out after %v", timeout)
 	}
 }
 
+func activeIPv4Addresses() ([]string, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{})
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch value := addr.(type) {
+			case *net.IPNet:
+				ip = value.IP
+			case *net.IPAddr:
+				ip = value.IP
+			}
+			if ip == nil || ip.To4() == nil || ip.IsUnspecified() || ip.IsLoopback() {
+				continue
+			}
+			seen[ip.String()] = struct{}{}
+		}
+	}
+	addresses := make([]string, 0, len(seen))
+	for addr := range seen {
+		addresses = append(addresses, addr)
+	}
+	sort.Strings(addresses)
+	return addresses, nil
+}
+
 // openBrowser tries to open the given URL in the system's default browser.
 func openBrowser(url string, output io.Writer) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
-	case "linux":
-		cmd = exec.Command("xdg-open", url)
+		cmd = exec.CommandContext(ctx, "open", url)
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
+		cmd = exec.CommandContext(ctx, "cmd", "/c", "start", url)
 	default:
-		_, _ = fmt.Fprintf(output, "Unsupported platform for auto-opening browser, please visit: %s\n", url)
 		return
 	}
-	if err := cmd.Start(); err != nil {
+	if err := cmd.Run(); err != nil {
 		_, _ = fmt.Fprintf(output, "Failed to open browser: %v. Please visit: %s\n", err, url)
 	}
 }

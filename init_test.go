@@ -6,6 +6,117 @@ import (
 	"testing"
 )
 
+func TestStartupDefaults(t *testing.T) {
+	options, _, err := loadStartupOptions(nil, func() []string { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := options.Config
+	if cfg.Protocol != "atrust" || cfg.ServerAddress != "vpn.yth.cn" || cfg.ServerPort != 443 || cfg.LoginDomain != "local" {
+		t.Fatalf("startup defaults = protocol %q, server %q, port %d, login domain %q", cfg.Protocol, cfg.ServerAddress, cfg.ServerPort, cfg.LoginDomain)
+	}
+	if !cfg.TUNMode || !cfg.AddRoute || cfg.DNSHijack || !cfg.FakeIP {
+		t.Fatalf("startup TUN defaults = mode %t, route %t, DNS hijack %t, fake IP %t; want DNS hijack disabled and others enabled",
+			cfg.TUNMode, cfg.AddRoute, cfg.DNSHijack, cfg.FakeIP)
+	}
+	if cfg.SocksBind != "" || cfg.HTTPBind != "" {
+		t.Fatalf("startup proxy defaults = %q, %q; want both disabled", cfg.SocksBind, cfg.HTTPBind)
+	}
+}
+
+func TestProxyListenersCanBeEnabled(t *testing.T) {
+	file := writeConfig(t, "socks_bind = \":1080\"\nhttp_bind = \":1081\"\n")
+	for _, tt := range []struct {
+		name      string
+		args      []string
+		env       []string
+		wantSocks string
+		wantHTTP  string
+	}{
+		{name: "config file", args: []string{"--config", file}, wantSocks: ":1080", wantHTTP: ":1081"},
+		{name: "environment", env: []string{"ZJU_CONNECT_SOCKS_BIND=:2080", "ZJU_CONNECT_HTTP_BIND=:2081"}, wantSocks: ":2080", wantHTTP: ":2081"},
+		{name: "command line", args: []string{"-socks-bind", ":3080", "-http-bind", ":3081"}, wantSocks: ":3080", wantHTTP: ":3081"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			options, _, err := loadStartupOptions(tt.args, func() []string { return tt.env })
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := options.Config
+			if cfg.SocksBind != tt.wantSocks || cfg.HTTPBind != tt.wantHTTP {
+				t.Fatalf("proxy binds = %q, %q; want %q, %q", cfg.SocksBind, cfg.HTTPBind, tt.wantSocks, tt.wantHTTP)
+			}
+		})
+	}
+}
+
+func TestTUNDefaultsCanBeOverridden(t *testing.T) {
+	file := writeConfig(t, "tun_mode = false\nadd_route = false\nfake_ip = false\n")
+	falseFlags := []string{"-tun-mode=false", "-add-route=false", "-fake-ip=false"}
+	falseEnv := []string{
+		"ZJU_CONNECT_TUN_MODE=false",
+		"ZJU_CONNECT_ADD_ROUTE=false",
+		"ZJU_CONNECT_FAKE_IP=false",
+	}
+	trueEnv := []string{
+		"ZJU_CONNECT_TUN_MODE=true",
+		"ZJU_CONNECT_ADD_ROUTE=true",
+		"ZJU_CONNECT_FAKE_IP=true",
+	}
+	for _, tt := range []struct {
+		name string
+		args []string
+		env  []string
+		want bool
+	}{
+		{name: "default", want: true},
+		{name: "config file", args: []string{"--config", file}},
+		{name: "environment", env: falseEnv},
+		{name: "command line", args: falseFlags},
+		{name: "environment overrides file", args: []string{"--config", file}, env: trueEnv, want: true},
+		{name: "command line overrides environment", args: falseFlags, env: trueEnv},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			options, _, err := loadStartupOptions(tt.args, func() []string { return tt.env })
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := options.Config
+			if cfg.TUNMode != tt.want || cfg.AddRoute != tt.want || cfg.FakeIP != tt.want {
+				t.Fatalf("TUN options = mode %t, route %t, fake IP %t; want all %t",
+					cfg.TUNMode, cfg.AddRoute, cfg.FakeIP, tt.want)
+			}
+		})
+	}
+}
+
+func TestDNSHijackConfigPrecedence(t *testing.T) {
+	file := writeConfig(t, "dns_hijack = true\n")
+	for _, tt := range []struct {
+		name string
+		args []string
+		env  []string
+		want bool
+	}{
+		{name: "default"},
+		{name: "config file", args: []string{"--config", file}, want: true},
+		{name: "environment", env: []string{"ZJU_CONNECT_DNS_HIJACK=true"}, want: true},
+		{name: "command line", args: []string{"-dns-hijack"}, want: true},
+		{name: "environment disables file", args: []string{"--config", file}, env: []string{"ZJU_CONNECT_DNS_HIJACK=false"}},
+		{name: "command line disables environment", args: []string{"-dns-hijack=false"}, env: []string{"ZJU_CONNECT_DNS_HIJACK=true"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			options, _, err := loadStartupOptions(tt.args, func() []string { return tt.env })
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := options.Config.DNSHijack; got != tt.want {
+				t.Fatalf("DNSHijack = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSessionRefreshConfiguration(t *testing.T) {
 	file := writeConfig(t, "session_refresh_interval = 900\n")
 	for _, tt := range []struct {
@@ -150,7 +261,7 @@ func TestProtocolServerWorkaround(t *testing.T) {
 		server   string
 		want     string
 	}{
-		{name: "empty server remains empty", protocol: "atrust"},
+		{name: "default server remains unchanged", protocol: "atrust", want: "vpn.yth.cn"},
 		{name: "aTrust rewrites EasyConnect server", protocol: "atrust", server: "rvpn.zju.edu.cn", want: "vpn.zju.edu.cn"},
 		{name: "EasyConnect rewrites aTrust server", protocol: "easyconnect", server: "vpn.zju.edu.cn", want: "rvpn.zju.edu.cn"},
 		{name: "aTrust server remains unchanged", protocol: "atrust", server: "vpn.zju.edu.cn", want: "vpn.zju.edu.cn"},

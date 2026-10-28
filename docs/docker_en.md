@@ -1,5 +1,7 @@
 ## Run in Docker
 
+The port-mapping examples below use the SOCKS5/HTTP proxies. Set `tun_mode = false`, `socks_bind = ":1080"`, and `http_bind = ":1081"` in the mounted `config.toml`. The default TUN mode requires additional container networking privileges and device access.
+
 ```shell
 docker run -d --name zju-connect -v $PWD/config.toml:/home/nonroot/config.toml -p 1080:1080 -p 1081:1081 --restart unless-stopped mythologyli/zju-connect
 ```
@@ -35,6 +37,9 @@ configs:
       content: |
          username = ""
          password = ""
+         tun_mode = false
+         socks_bind = ":1080"
+         http_bind = ":1081"
          # other configs ...
 ```
 
@@ -67,13 +72,16 @@ configs:
       content: |
          username = ""
          password = ""
+         tun_mode = false
+         socks_bind = ":1080"
+         http_bind = ":1081"
          client_data_file = "/home/nonroot/data/client_data.json"
          # other configs ...
 volumes:
    zju-connect-data:
 ```
 
-When first logging in with the aTrust protocol, human verification is required. Use `network_mode: host` and run in interactive mode temporarily:
+The first aTrust login requires human verification. On Linux, temporarily replace this service's `ports` with `network_mode: host`, then run it interactively so the randomly assigned captcha port is reachable through the host network:
 
 ```shell
 docker compose run --rm -it zju-connect
@@ -81,11 +89,11 @@ docker compose run --rm -it zju-connect
 
 **1. Graphical Captcha**
 
-The program starts a temporary HTTP server to display the captcha. The port is randomly assigned by the system. Check the logs for the actual address:
+The program listens on a random port on all IPv4 interfaces and prints the local and active interface URLs. Select one reachable from your browser device; the firewall must also allow that port:
 
 ```
-2026/03/25 09:10:46 Captcha server started at http://127.0.0.1:40855
-2026/03/25 09:10:46 Failed to open browser: exec: "xdg-open": executable file not found in $PATH. Please visit: http://127.0.0.1:40855
+Captcha local URL: http://127.0.0.1:40855/captcha/<random-token>/
+Captcha network URL: http://192.168.1.10:40855/captcha/<random-token>/
 ```
 
 After completing the captcha, the program will prompt for SMS verification:
