@@ -304,10 +304,21 @@ applyLang();
 // image in the user's browser and waits for the user to click on character
 // positions and submit the coordinates.
 func serveCaptchaInBrowser(imgData []byte, timeout time.Duration, output io.Writer) (ClickCaptchaResponse, error) {
-	return serveCaptcha(imgData, timeout, output, runtime.GOOS, openBrowser)
+	return serveCaptchaInBrowserContext(context.Background(), imgData, timeout, output)
+}
+
+func serveCaptchaInBrowserContext(ctx context.Context, imgData []byte, timeout time.Duration, output io.Writer) (ClickCaptchaResponse, error) {
+	return serveCaptchaContext(ctx, imgData, timeout, output, runtime.GOOS, openBrowser)
 }
 
 func serveCaptcha(imgData []byte, timeout time.Duration, output io.Writer, platform string, browserOpener func(string, io.Writer)) (ClickCaptchaResponse, error) {
+	return serveCaptchaContext(context.Background(), imgData, timeout, output, platform, browserOpener)
+}
+
+func serveCaptchaContext(ctx context.Context, imgData []byte, timeout time.Duration, output io.Writer, platform string, browserOpener func(string, io.Writer)) (ClickCaptchaResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return ClickCaptchaResponse{}, err
+	}
 	secret := make([]byte, 16)
 	if _, err := rand.Read(secret); err != nil {
 		return ClickCaptchaResponse{}, fmt.Errorf("generate captcha access token: %w", err)
@@ -401,7 +412,10 @@ func serveCaptcha(imgData []byte, timeout time.Duration, output io.Writer, platf
 	}()
 
 	port := listener.Addr().(*net.TCPAddr).Port
-	fmt.Println("请打开下方能够访问的地址进行验证码输入")
+	if err := ctx.Err(); err != nil {
+		return ClickCaptchaResponse{}, err
+	}
+	_, _ = fmt.Fprintln(output, "请打开下方能够访问的地址进行验证码输入")
 	localURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, basePath)
 	_, _ = fmt.Fprintf(output, "Captcha local URL: %s\n", localURL)
 	addresses, err := activeIPv4Addresses()
@@ -418,6 +432,8 @@ func serveCaptcha(imgData []byte, timeout time.Duration, output io.Writer, platf
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
+	case <-ctx.Done():
+		return ClickCaptchaResponse{}, ctx.Err()
 	case response := <-resultCh:
 		return response, nil
 	case <-timer.C:

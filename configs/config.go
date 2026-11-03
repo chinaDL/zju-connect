@@ -60,6 +60,10 @@ type Config struct {
 	ResourceFile            string `koanf:"resource_file"`
 	UpdateBestNodesInterval int    `koanf:"update_best_nodes_interval"`
 	SessionRefreshInterval  int    `koanf:"session_refresh_interval"`
+	LLMCaptcha              bool   `koanf:"llm_captcha"`
+	LLMBaseURL              string `koanf:"llm_base_url"`
+	LLMAPIKey               string `koanf:"llm_api_key"`
+	LLMModel                string `koanf:"llm_model"`
 }
 
 type SinglePortForwarding struct {
@@ -87,5 +91,6 @@ func Default() Config {
 		LoginDomain:             "local",
 		UpdateBestNodesInterval: 300,
 		SessionRefreshInterval:  1800,
+		LLMBaseURL:              "https://api.openai.com/v1",
 	}
 }

@@ -111,7 +111,7 @@ TUN mode is enabled by default and no SOCKS5/HTTP proxy ports are opened. Run th
 
 + `password`: Network account password. (Sensitive information is recommended to be provided via env `ZJU_CONNECT_PASSWORD`)
 
-+ `graph-code-file`: Graphic captcha file path, empty by default. In aTrust mode, an empty value starts a temporary HTTP page on a random IPv4 port and prints the local URL plus URLs for active network interfaces. On Linux, open a reachable URL from another device; macOS and Windows also open the local page automatically. If a path is set, the image is saved there and JSON is entered in the terminal. The page closes after submission or timeout; remote access requires the firewall to allow the random port.
++ `graph-code-file`: Graphic captcha file path, empty by default. In aTrust mode with `llm-captcha` disabled, an empty value starts a temporary HTTP page on a random IPv4 port and prints the local URL plus URLs for active network interfaces. On Linux, open a reachable URL from another device; macOS and Windows also open the local page automatically. If a path is set, the image is saved there and JSON is entered in the terminal. The page closes after submission or timeout; remote access requires the firewall to allow the random port.
 
 + `totp-secret`: TOTP secret, can be used to automatically complete TOTP verification. If the server doesn't require TOTP or you want to manually enter the code, leave blank. (Sensitive information is recommended to be provided via env `ZJU_CONNECT_TOTP_SECRET`)
 
@@ -213,6 +213,30 @@ The old `disable_zju_dns` and `zju_dns_server` names, including their command-li
 + `device-id`: aTrust device ID, for debugging purposes, generally no need to add this argument.
 + `sign-key`: aTrust signature key, for debugging purposes, generally no need to add this argument.
 + `resource-file`: aTrust resource file, for debugging purposes, generally no need to add this argument.
+
+#### LLM click captcha recognition
+
+Enable `-llm-captcha` for aTrust image click captchas. Disabled by default.
+
++ `llm-base-url`: OpenAI-compatible API prefix, default `https://api.openai.com/v1`. The client appends `/chat/completions`; a full endpoint ending in `/chat/completions` is also accepted.
++ `llm-api-key`: Required when enabled. Alternatively set `ZJU_CONNECT_LLM_API_KEY`.
++ `llm-model`: Required vision model name. The model must support image input and JSON output mode.
+
+```sh
+./zju-connect -username "username" -password "password" \
+  -llm-captcha \
+  -llm-base-url "https://model.example/v1" \
+  -llm-api-key "your-api-key" \
+  -llm-model "your-vision-model"
+```
+
+The original captcha image and dimensions are sent to the configured provider using OpenAI-compatible Chat Completions. VPN passwords, cookies and SIDs are not included. Logs omit the API key and response body. CLI keys may appear in process arguments or shell history; the environment variable is an alternative.
+
+Each request has a 30-second timeout. Network failures, timeouts, all non-200 HTTP responses (including 400, 401, 403, 429 and 524) and invalid JSON/coordinates trigger up to **5 retries after the initial request** (**6 calls total**), with delays of 2, 4, 8, 8 and 8 seconds. Retries reuse the current unsubmitted image and original endpoint; HTTP redirects are not followed. Login cancellation stops requests and backoff immediately. Non-HTTP failures such as explicit model refusals and oversized responses still return immediately. Non-retryable errors or exhausted retries stop this login, without manual input.
+
+With `llm-captcha` enabled, every click captcha goes directly to the model. No captcha web server or browser is opened, and no image is saved for manual entry; `graph-code-file` is ignored for click captchas in this mode. VPN rejection fetches a fresh image and invokes the model again, within the existing five-submission limit per login. With the option disabled, the original manual workflow remains available, including automatic browser opening on macOS/Windows.
+
+TOML keys: `llm_captcha`, `llm_base_url`, `llm_api_key`, `llm_model`. Environment variables: `ZJU_CONNECT_LLM_CAPTCHA`, `ZJU_CONNECT_LLM_BASE_URL`, `ZJU_CONNECT_LLM_API_KEY`, `ZJU_CONNECT_LLM_MODEL`. Precedence remains CLI > environment > configuration file > defaults.
 
 ### Schedule
 

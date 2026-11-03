@@ -1,6 +1,7 @@
 package authchallenge
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
@@ -47,6 +48,8 @@ type Point struct {
 }
 
 type ClickCaptchaChallenge struct {
+	// Context is the login lifetime; nil preserves the standalone behavior.
+	Context    context.Context
 	Image      []byte
 	OutputPath string
 	Message    string
@@ -80,6 +83,11 @@ type Handler interface {
 	HandleTextCaptcha(TextCaptchaChallenge) (TextCaptchaResponse, error)
 	HandleClickCaptcha(ClickCaptchaChallenge) (ClickCaptchaResponse, error)
 	HandleExternalLogin(ExternalLoginChallenge) (ExternalLoginResponse, error)
+}
+
+// LoginHandlerFactory binds a challenge handler to each login lifetime.
+type LoginHandlerFactory interface {
+	ForLogin(context.Context) Handler
 }
 
 type HandlerFuncs struct {

@@ -116,7 +116,7 @@
 
 + `password`: 网络账户密码（敏感信息建议使用环境变量 `ZJU_CONNECT_PASSWORD` 给定）
 
-+ `graph-code-file`: 图形验证码文件路径，默认为空。在 aTrust 模式下，留空时程序会临时监听随机 IPv4 端口，打印本机及各活动网卡的访问地址；Linux 可从其他能连通该地址的设备打开浏览器完成验证码，macOS/Windows 还会自动打开本机页面。设置路径后则保存图片，由用户在终端输入 JSON。临时页面完成提交或超时后关闭；远程访问需允许该随机端口通过防火墙
++ `graph-code-file`: 图形验证码文件路径，默认为空。在 aTrust 模式且未启用 `llm-captcha` 时，留空会临时监听随机 IPv4 端口，打印本机及各活动网卡的访问地址；Linux 可从其他能连通该地址的设备打开浏览器完成验证码，macOS/Windows 还会自动打开本机页面。设置路径后则保存图片，由用户在终端输入 JSON。临时页面完成提交或超时后关闭；远程访问需允许该随机端口通过防火墙
 
 + `totp-secret`: TOTP 密钥，可用于自动完成 TOTP 验证。如服务端无需 TOTP 验证或希望手动输入验证码，可不填（敏感信息建议使用环境变量 `ZJU_CONNECT_TOTP_SECRET` 给定）
 
@@ -231,6 +231,30 @@
 + `sign-key`: aTrust 签名密钥，调试用途，一般不需要加此参数
 
 + `resource-file`: aTrust 资源文件，调试用途，一般不需要加此参数
+
+#### LLM 图像点选验证码
+
+增加 `-llm-captcha` 开启自动识别，默认关闭，仅用于 aTrust 图像点选验证码。
+
++ `llm-base-url`：OpenAI 兼容 API 地址，默认 `https://api.openai.com/v1`。填写服务商的 API 前缀，例如 `https://model.example/v1`；程序追加 `/chat/completions`。已有完整 `/chat/completions` 地址也可直接使用。
++ `llm-api-key`：模型 API key，开启功能时必填，也可以使用环境变量 `ZJU_CONNECT_LLM_API_KEY`。
++ `llm-model`：模型名称，开启功能时必填；模型需支持图像输入及 JSON 输出模式。
+
+```sh
+./zju-connect -username "你的账号" -password "你的密码" \
+  -llm-captcha \
+  -llm-base-url "https://model.example/v1" \
+  -llm-api-key "你的APIKey" \
+  -llm-model "你的视觉模型名称"
+```
+
+通过 OpenAI 兼容 Chat Completions 接口发送验证码原图和尺寸，只接收有序点击坐标。验证码图片会发送到指定的模型服务；VPN 密码、Cookie、SID 不会随模型请求发送，日志不记录 API key 或模型响应正文。启动参数中的 key 会出现在进程参数和可能的 shell 历史中，可改用环境变量。
+
+单次调用超时 30 秒。网络失败、超时、所有 HTTP 非 200 响应（包括 400、401、403、429、524）、格式或坐标不合法时，首次调用之后最多重试 **5 次**（最多 **6 次调用**），等待间隔依次为 2、4、8、8、8 秒；重试期间使用同一张尚未提交的图片和原接口地址，不跟随 HTTP 重定向。登录取消立即停止请求和等待。模型明确拒绝、响应过大等非 HTTP 错误仍直接返回；错误不可重试或重试耗尽会终止本次登录，不转手动。
+
+启用 `llm-captcha` 后，所有图像点选验证码都直接交给 LLM，不启动验证码网页、不打开浏览器、不保存图片等待手动输入；`graph-code-file` 在此模式下不参与图像点选验证码处理。VPN 拒绝坐标时重新获取验证码并继续调用 LLM，保留原有每次登录最多五次验证码提交上限。未启用时沿用原手动流程，macOS/Windows 仍可自动打开验证码页面。
+
+对应 TOML 配置项为 `llm_captcha`、`llm_base_url`、`llm_api_key`、`llm_model`；环境变量为 `ZJU_CONNECT_LLM_CAPTCHA`、`ZJU_CONNECT_LLM_BASE_URL`、`ZJU_CONNECT_LLM_API_KEY`、`ZJU_CONNECT_LLM_MODEL`。优先级沿用：启动参数 > 环境变量 > 配置文件 > 默认值。
 
 ### 计划表
 

@@ -141,6 +141,14 @@ func NewSessionContext(ctx context.Context, server string, tlsKeyLogWriter io.Wr
 	}
 }
 
+// WithContext returns a shallow copy with a new request lifetime. The copies
+// share the HTTP client and authentication state and must not be used concurrently.
+func (s *Session) WithContext(ctx context.Context) *Session {
+	session := *s
+	session.ctx = ctx
+	return &session
+}
+
 func (s *Session) request(req *http.Request) (*http.Response, error) {
 	ctx, cancel := context.WithCancel(req.Context())
 	stop := context.AfterFunc(s.ctx, cancel)
@@ -227,6 +235,7 @@ func (s *Session) withGraphCheckCode(process func(string) (int, error), graphCod
 		}
 
 		captchaResponse, err := s.challengeHandler.HandleClickCaptcha(authchallenge.ClickCaptchaChallenge{
+			Context:    s.ctx,
 			Image:      imgData,
 			OutputPath: graphCodeFile,
 			Message:    "Please enter the graph check code JSON:",
@@ -353,6 +362,9 @@ func (s *Session) Login(method LoginMethod, opts LoginOptions) (LoginResult, err
 	s.challengeHandler = opts.ChallengeHandler
 	if s.challengeHandler == nil {
 		s.challengeHandler = authchallenge.NewCLIHandler(authchallenge.CLIOptions{})
+	}
+	if factory, ok := s.challengeHandler.(authchallenge.LoginHandlerFactory); ok {
+		s.challengeHandler = factory.ForLogin(s.ctx)
 	}
 	s.env = base64.StdEncoding.EncodeToString([]byte(`{"deviceId":"` + opts.DeviceID + `"}`))
 

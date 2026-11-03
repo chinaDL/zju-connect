@@ -25,16 +25,23 @@ type captchaResult struct {
 
 func waitCaptchaURL(t *testing.T, output <-chan string) string {
 	t.Helper()
-	select {
-	case line := <-output:
-		const prefix = "Captcha local URL: "
-		if !strings.HasPrefix(line, prefix) {
-			t.Fatalf("first output = %q", line)
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case line := <-output:
+			const prefix = "Captcha local URL: "
+			if strings.TrimSpace(line) == "请打开下方能够访问的地址进行验证码输入" {
+				continue
+			}
+			if !strings.HasPrefix(line, prefix) {
+				t.Fatalf("first output = %q", line)
+			}
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		case <-timer.C:
+			t.Fatal("captcha server did not print its URL")
+			return ""
 		}
-		return strings.TrimSpace(strings.TrimPrefix(line, prefix))
-	case <-time.After(3 * time.Second):
-		t.Fatal("captcha server did not print its URL")
-		return ""
 	}
 }
 

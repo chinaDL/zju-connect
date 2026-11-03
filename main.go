@@ -18,6 +18,7 @@ import (
 	"github.com/mythologyli/zju-connect/client"
 	atrustclient "github.com/mythologyli/zju-connect/client/atrust"
 	"github.com/mythologyli/zju-connect/client/atrust/auth"
+	"github.com/mythologyli/zju-connect/client/authchallenge"
 	easyconnectclient "github.com/mythologyli/zju-connect/client/easyconnect"
 	"github.com/mythologyli/zju-connect/configs"
 	"github.com/mythologyli/zju-connect/dial"
@@ -166,6 +167,21 @@ func main() {
 			}
 		}
 
+		var challengeHandler authchallenge.Handler
+		if conf.LLMCaptcha {
+			challengeHandler, err = authchallenge.NewLLMHandler(authchallenge.LLMOptions{
+				BaseURL: conf.LLMBaseURL,
+				APIKey:  conf.LLMAPIKey,
+				Model:   conf.LLMModel,
+				OnRetry: func(retry int, delay time.Duration, err error) {
+					log.Printf("LLM captcha request failed; retry %d/5 in %s: %v", retry, delay, err)
+				},
+			}, authchallenge.NewCLIHandler(authchallenge.CLIOptions{}))
+			if err != nil {
+				log.Fatalf("Configure LLM captcha: %v", err)
+			}
+		}
+
 		vpnClient = atrustclient.NewClient(atrustclient.ClientOptions{
 			Session: atrustclient.SessionOptions{
 				Username: conf.Username,
@@ -189,6 +205,7 @@ func main() {
 			ServerAddress:            conf.ServerAddress,
 			ServerPort:               conf.ServerPort,
 			LoginMethod:              loginMethod,
+			ChallengeHandler:         challengeHandler,
 			TOTPSecret:               conf.TOTPSecret,
 			ClientData:               clientData,
 			ResourceData:             resourceData,

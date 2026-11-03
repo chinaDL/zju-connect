@@ -2,6 +2,7 @@ package authchallenge
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -94,9 +95,16 @@ func (h *CLIHandler) HandleTextCaptcha(challenge TextCaptchaChallenge) (TextCapt
 func (h *CLIHandler) HandleClickCaptcha(challenge ClickCaptchaChallenge) (ClickCaptchaResponse, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	ctx := challenge.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return ClickCaptchaResponse{}, err
+	}
 
 	if challenge.OutputPath == "" {
-		return serveCaptchaInBrowser(challenge.Image, h.captchaTimeout, h.output)
+		return serveCaptchaInBrowserContext(ctx, challenge.Image, h.captchaTimeout, h.output)
 	}
 	if err := os.WriteFile(challenge.OutputPath, challenge.Image, 0644); err != nil {
 		return ClickCaptchaResponse{}, fmt.Errorf("write captcha image: %w", err)

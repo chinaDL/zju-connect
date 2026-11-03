@@ -61,12 +61,17 @@ twf_id = ""
 auth_type = "auth/psw"
 login_domain = "local"
 client_data_file = "client_data.json"
-graph_code_file = "" # aTrust: empty starts a temporary IPv4 captcha page and prints access URLs; macOS/Windows also open it locally. A path saves the image for terminal input.
+graph_code_file = "" # Ignored for click captchas with llm_captcha=true. Otherwise, aTrust: empty starts a temporary IPv4 captcha page and prints access URLs; macOS/Windows also open it locally. A path saves the image for terminal input.
 cas_ticket = ""
 oauth2_code = ""
 phone = ""
 update_best_nodes_interval = 300
 session_refresh_interval = 1800 # aTrust authConfig refresh interval in seconds; 0 disables
+llm_captcha = false # aTrust click captchas: model only; errors stop login, never open browser
+llm_base_url = "https://api.openai.com/v1" # OpenAI-compatible API prefix
+llm_api_key = "" # Or set ZJU_CONNECT_LLM_API_KEY
+llm_model = "" # Required vision model when enabled; 5 retries after the initial API request
+
 sid = ""
 device_id = ""
 sign_key = ""

@@ -17,6 +17,7 @@ import (
 	"github.com/knadh/koanf/providers/structs"
 	"github.com/knadh/koanf/v2"
 	"github.com/mythologyli/zju-connect/client/atrust"
+	"github.com/mythologyli/zju-connect/client/authchallenge"
 	"github.com/mythologyli/zju-connect/configs"
 	"github.com/spf13/pflag"
 )
@@ -136,6 +137,10 @@ func newFlagSet(defaults configs.Config) *pflag.FlagSet {
 	flags.String("resource-file", defaults.ResourceFile, "aTrust Resource File")
 	flags.Int("update-best-nodes-interval", defaults.UpdateBestNodesInterval, "Interval to update best nodes in seconds")
 	flags.Int("session-refresh-interval", defaults.SessionRefreshInterval, "aTrust session refresh interval in seconds (0 disables)")
+	flags.Bool("llm-captcha", defaults.LLMCaptcha, "Recognize aTrust click captchas only with a vision LLM; fail without opening a browser")
+	flags.String("llm-base-url", defaults.LLMBaseURL, "OpenAI-compatible API base URL (including /v1 when required)")
+	flags.String("llm-api-key", defaults.LLMAPIKey, "LLM API key (or ZJU_CONNECT_LLM_API_KEY)")
+	flags.String("llm-model", defaults.LLMModel, "Vision model used for aTrust click captchas")
 
 	for _, spec := range collectionSpecs {
 		flags.String(spec.FlagName, "", spec.Help)
@@ -475,6 +480,14 @@ func zjuServerWorkaround(cfg *configs.Config) {
 }
 
 func validateConfig(cfg configs.Config) error {
+	if cfg.LLMCaptcha {
+		if cfg.Protocol != "atrust" {
+			return errors.New("llm-captcha is only supported by the atrust protocol")
+		}
+		if err := (authchallenge.LLMOptions{BaseURL: cfg.LLMBaseURL, APIKey: cfg.LLMAPIKey, Model: cfg.LLMModel}).Validate(); err != nil {
+			return err
+		}
+	}
 	if cfg.Protocol != "easyconnect" && cfg.Protocol != "atrust" {
 		return fmt.Errorf("unsupported VPN protocol: %s", cfg.Protocol)
 	}

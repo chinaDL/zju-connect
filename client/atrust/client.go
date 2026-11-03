@@ -457,7 +457,9 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 		}
 	}
 	if options.SessionRefreshInterval > 0 {
-		c.startSessionRefresh(sess.Refresh, clientAuthData, options.SaveClientData, options.SessionRefreshInterval)
+		// Setup's context is canceled on return; session maintenance lasts until Close.
+		refreshSession := sess.WithContext(c.lifecycleCtx)
+		c.startSessionRefresh(refreshSession.Refresh, clientAuthData, options.SaveClientData, options.SessionRefreshInterval)
 	}
 
 	if options.BestNodesRefreshInterval > 0 {
