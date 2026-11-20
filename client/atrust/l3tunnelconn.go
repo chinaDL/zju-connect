@@ -88,7 +88,6 @@ type l3TunnelConn struct {
 	heartbeatInterval  time.Duration
 	heartbeatMissLimit int32
 	heartbeatMisses    int32
-	heartbeatHasWrite  uint32
 	authWake           chan struct{}
 	writeFrameHook     func([]byte) error
 	dataStream         []byte
@@ -251,6 +250,9 @@ func (c *l3TunnelConn) readLoop() {
 			_ = c.Close()
 			return
 		}
+		// Only a complete response proves the remote tunnel is alive. A local
+		// write can succeed even when the connection has stopped receiving.
+		atomic.StoreInt32(&c.heartbeatMisses, 0)
 
 		switch fr.cmd {
 		case cmdDataResp:
@@ -279,8 +281,6 @@ func (c *l3TunnelConn) readLoop() {
 			c.handleSecondVipResp(fr.status, fr.payload)
 		case cmdHeartbeatResp:
 			log.DebugPrintf("l3-tunnel recv heartbeat")
-			atomic.StoreUint32(&c.heartbeatHasWrite, 0)
-			atomic.StoreInt32(&c.heartbeatMisses, 0)
 		default:
 			log.DebugPrintf("l3-tunnel ignore cmd 0x%02x", fr.cmd)
 		}
@@ -329,14 +329,12 @@ func (c *l3TunnelConn) heartbeatLoop() {
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	writeDone := make(chan bool, 1)
+	writePending := false
 	for {
 		select {
 		case <-ticker.C:
 			c.conntrackMgr.removeExpired()
-			if atomic.SwapUint32(&c.heartbeatHasWrite, 0) != 0 {
-				atomic.StoreInt32(&c.heartbeatMisses, 0)
-				continue
-			}
 			misses := atomic.LoadInt32(&c.heartbeatMisses)
 			if misses >= missLimit {
 				log.DebugPrintf("l3-tunnel heartbeat timed out after %d missed responses", misses)
@@ -344,7 +342,15 @@ func (c *l3TunnelConn) heartbeatLoop() {
 				return
 			}
 			atomic.AddInt32(&c.heartbeatMisses, 1)
-			if !c.sendHeartbeat() {
+			// Keep the watchdog running if a data write holds writeMu or the
+			// heartbeat itself blocks in TLS. Close will unblock those writes.
+			if !writePending {
+				writePending = true
+				go func() { writeDone <- c.sendHeartbeat() }()
+			}
+		case ok := <-writeDone:
+			writePending = false
+			if !ok {
 				return
 			}
 		case <-c.closeCh:
@@ -610,11 +616,7 @@ func (c *l3TunnelConn) completeAuthentication(authID uint64, token string, authE
 
 func (c *l3TunnelConn) writeFrame(data []byte) error {
 	if c.writeFrameHook != nil {
-		err := c.writeFrameHook(data)
-		if err == nil {
-			atomic.StoreUint32(&c.heartbeatHasWrite, 1)
-		}
-		return err
+		return c.writeFrameHook(data)
 	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
@@ -622,9 +624,6 @@ func (c *l3TunnelConn) writeFrame(data []byte) error {
 	n, err := c.tlsConn.Write(data)
 	if err == nil && n != len(data) {
 		return io.ErrShortWrite
-	}
-	if err == nil {
-		atomic.StoreUint32(&c.heartbeatHasWrite, 1)
 	}
 	return err
 }

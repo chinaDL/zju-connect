@@ -576,7 +576,6 @@ func TestReadLoopProcessesControlFramesWhenIncomingQueueIsFull(t *testing.T) {
 		conntrackMgr: newConntrackMgr(),
 	}
 	atomic.StoreInt32(&conn.heartbeatMisses, 2)
-	atomic.StoreUint32(&conn.heartbeatHasWrite, 1)
 	conn.incoming <- []byte("already queued")
 	done := make(chan struct{})
 	go func() {
@@ -591,9 +590,6 @@ func TestReadLoopProcessesControlFramesWhenIncomingQueueIsFull(t *testing.T) {
 	}
 	if misses := atomic.LoadInt32(&conn.heartbeatMisses); misses != 0 {
 		t.Fatalf("heartbeat misses = %d, want control response processed", misses)
-	}
-	if hasWrite := atomic.LoadUint32(&conn.heartbeatHasWrite); hasWrite != 0 {
-		t.Fatalf("heartbeat hasWrite = %d, want control response to clear activity", hasWrite)
 	}
 	if got := <-conn.incoming; !bytes.Equal(got, []byte("already queued")) {
 		t.Fatalf("full queue content changed to % X", got)
@@ -671,7 +667,7 @@ func TestHeartbeatWaitsForFirstInterval(t *testing.T) {
 	_ = conn.Close()
 }
 
-func TestHeartbeatSuccessfulCommandWriteSuppressesProbe(t *testing.T) {
+func TestHeartbeatSuccessfulCommandWriteDoesNotSuppressProbe(t *testing.T) {
 	transport := &trackingNetConn{closed: make(chan struct{})}
 	written := make(chan []byte, 2)
 	conn := &l3TunnelConn{
@@ -685,6 +681,7 @@ func TestHeartbeatSuccessfulCommandWriteSuppressesProbe(t *testing.T) {
 			return nil
 		},
 	}
+	t.Cleanup(func() { _ = conn.Close() })
 	atomic.StoreInt32(&conn.heartbeatMisses, 1)
 	if err := conn.writeFrame([]byte{l3Version, cmdDataReq}); err != nil {
 		t.Fatal(err)
@@ -692,19 +689,20 @@ func TestHeartbeatSuccessfulCommandWriteSuppressesProbe(t *testing.T) {
 	<-written
 	go conn.heartbeatLoop()
 
-	time.Sleep(60 * time.Millisecond)
-	if misses := atomic.LoadInt32(&conn.heartbeatMisses); misses != 0 {
-		t.Fatalf("heartbeat misses = %d, want command activity to clear misses", misses)
-	}
 	select {
 	case frame := <-written:
-		t.Fatalf("heartbeat sent despite command activity: % X", frame)
-	default:
+		if !bytes.Equal(frame, []byte{l3Version, cmdHeartbeatReq, 0x00, 0x00}) {
+			t.Fatalf("frame = % X, want heartbeat despite command activity", frame)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("successful command write suppressed the heartbeat")
 	}
-	_ = conn.Close()
+	if misses := atomic.LoadInt32(&conn.heartbeatMisses); misses != 2 {
+		t.Fatalf("heartbeat misses = %d, want 2 without a response", misses)
+	}
 }
 
-func TestSuccessfulHeartbeatWriteClearsMissesOnNextTick(t *testing.T) {
+func TestSuccessfulHeartbeatWriteDoesNotClearMisses(t *testing.T) {
 	transport := &trackingNetConn{closed: make(chan struct{})}
 	written := make(chan []byte, 2)
 	conn := &l3TunnelConn{
@@ -718,6 +716,7 @@ func TestSuccessfulHeartbeatWriteClearsMissesOnNextTick(t *testing.T) {
 			return nil
 		},
 	}
+	t.Cleanup(func() { _ = conn.Close() })
 	go conn.heartbeatLoop()
 
 	select {
@@ -732,25 +731,27 @@ func TestSuccessfulHeartbeatWriteClearsMissesOnNextTick(t *testing.T) {
 		t.Fatalf("misses after heartbeat = %d, want 1", misses)
 	}
 
-	time.Sleep(45 * time.Millisecond)
-	if misses := atomic.LoadInt32(&conn.heartbeatMisses); misses != 0 {
-		t.Fatalf("misses after successful heartbeat activity = %d, want 0", misses)
-	}
 	select {
 	case frame := <-written:
-		t.Fatalf("next tick sent a heartbeat instead of consuming hasWrite: % X", frame)
-	default:
+		if !bytes.Equal(frame, []byte{l3Version, cmdHeartbeatReq, 0x00, 0x00}) {
+			t.Fatalf("second frame = % X, want heartbeat", frame)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("next probe was suppressed by the previous heartbeat write")
 	}
-	_ = conn.Close()
+	if misses := atomic.LoadInt32(&conn.heartbeatMisses); misses != 2 {
+		t.Fatalf("misses after two unanswered heartbeats = %d, want 2", misses)
+	}
 }
 
-func TestFailedCommandWriteDoesNotSetHeartbeatActivity(t *testing.T) {
+func TestFailedCommandWriteDoesNotClearHeartbeatMisses(t *testing.T) {
 	conn := &l3TunnelConn{writeFrameHook: func([]byte) error { return io.ErrClosedPipe }}
+	atomic.StoreInt32(&conn.heartbeatMisses, 1)
 	if err := conn.writeFrame([]byte{l3Version, cmdDataReq}); !errors.Is(err, io.ErrClosedPipe) {
 		t.Fatalf("writeFrame() error = %v, want closed pipe", err)
 	}
-	if atomic.LoadUint32(&conn.heartbeatHasWrite) != 0 {
-		t.Fatal("failed command write set heartbeat activity")
+	if atomic.LoadInt32(&conn.heartbeatMisses) != 1 {
+		t.Fatal("failed command write cleared unanswered heartbeat count")
 	}
 }
 
